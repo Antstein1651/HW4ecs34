@@ -1,141 +1,118 @@
-// Created Wednesday Feb. 5th 2025
-#include <iostream>
 #include "XMLReader.h"
+#include <expat.h>
+#include <queue>
+#include <memory>
+#include <vector>
 
 struct CXMLReader::SImplementation {
-    std::shared_ptr<CDataSource> Source;
-    bool EndOfFile; //true or false for if we are at the end of the file
-    std::string Leftovers; //Leftovers = text we didn't process yet
+    std::shared_ptr<CDataSource> Source; 
+    XML_Parser Parser; 
+    std::queue<SXMLEntity> Queue;
+    bool Data;
+    std::string Buffer; 
+    static void ElementHandler(void *userData, const char *name, const char **element, bool isStart) {
+        auto *impl = static_cast<SImplementation *>(userData);
+        impl->FlushCharData(); 
 
-    SImplementation(std::shared_ptr<CDataSource> src) {
-        Source = src; // Initializing Source with src
-        EndOfFile = false;  // Initializing EndOfFile to false
-        Leftovers = ""; // Initializing the leftovers as an empty string
+        SXMLEntity entity;
+        entity.DType = isStart ? SXMLEntity::EType::StartElement : SXMLEntity::EType::EndElement;
+        entity.DNameData = name;
+
+
+        if (isStart && element) {
+            for (int i = 0; element[i] != nullptr; i += 2) {
+                if (element[i + 1] != nullptr) {
+                    entity.DAttributes.emplace_back(element[i], element[i + 1]);
+                }
+            }
+        }
+
+        impl->Queue.push(entity);  
+    }
+
+
+    static void StartElementHandler(void *userData, const char *name, const char **element) {
+        ElementHandler(userData, name, element, true);
+    }
+
+  
+    static void EndElementHandler(void *userData, const char *name) {
+        ElementHandler(userData, name, nullptr, false);
+    }
+
+
+    static void CharDataHandler(void *userData, const char *j, int len) {
+        if (j && len > 0) {
+            static_cast<SImplementation *>(userData)->Buffer.append(j, len);  
+        }
+    }
+
+    
+    SImplementation(std::shared_ptr<CDataSource> src) : Source(std::move(src)), Data(false) {
+        Parser = XML_ParserCreate(nullptr);
+        XML_SetUserData(Parser, this);
+        XML_SetElementHandler(Parser, StartElementHandler, EndElementHandler);
+        XML_SetCharacterDataHandler(Parser, CharDataHandler);
+    }
+
+    
+    ~SImplementation() {
+        XML_ParserFree(Parser);
+    }
+
+
+    void FlushCharData() {
+        if (!Buffer.empty()) {
+            Queue.push({SXMLEntity::EType::CharData, Buffer, {}});
+            Buffer.clear(); 
+        }
+    }
+
+   
+    bool ReadEntity(SXMLEntity &entity, bool skipcdata) {
+        while (Queue.empty() && !Data) {
+            std::vector<char> buffer(4096);
+            size_t length = 0;
+            while (length < buffer.size() && !Source->End()) {
+                char ch;
+                if (Source->Get(ch)) {
+                    buffer[length++] = ch;\
+                } else {
+                    break;
+                }
+            }
+
+            if (length == 0) {
+                Data = true;
+                XML_Parse(Parser, nullptr, 0, 1); 
+                break;
+            }
+
+            if (XML_Parse(Parser, buffer.data(), length, 0) == XML_STATUS_ERROR) {
+                return false;  
+            }
+        }
+
+        if (!Queue.empty()) {
+            entity = Queue.front();
+            Queue.pop();
+            return !(skipcdata && entity.DType == SXMLEntity::EType::CharData) || ReadEntity(entity, skipcdata);
+        }
+
+        return false;  
     }
 };
 
 
-// Constructor
-CXMLReader::CXMLReader(std::shared_ptr<CDataSource> src) : DImplementation(std::make_unique<SImplementation>(src)) {
+CXMLReader::CXMLReader(std::shared_ptr<CDataSource> src): DImplementation(std::make_unique<SImplementation>(std::move(src))) {}
+
+CXMLReader::~CXMLReader() = default; 
+
+bool CXMLReader::End() const {
+    return DImplementation->Data && DImplementation->Queue.empty();
 }
 
 
-// Destructor
-CXMLReader::~CXMLReader()
-{
-}
-
-// Check if end of data source is reached
-bool CXMLReader::End() const
-{
-    //return whether or not we are at the end of the file
-   return DImplementation->EndOfFile;  
-}
-
-// Read an XML entity
-bool CXMLReader::ReadEntity(SXMLEntity &entity, bool skipcdata) 
-{
-    char c;
-    std::string Leftovers;  // Accumulate characters until an entity is detected
-    bool insideTag = false;
-    
-    // read all the characters in the source file
-    while (DImplementation->Source->Get(c)) 
-    {
-        // if the character is the start of an XML
-        if (c == '<') 
-        {  
-            if (!Leftovers.empty()) 
-            {
-                entity.DType = SXMLEntity::EType::CharData;
-                entity.DNameData = Leftovers;
-                return true;
-            }
-            // clear the leftover string
-            Leftovers.clear(); 
-            // we are inside the XML tag
-            insideTag = true;
-        } 
-        // we've reached the end of an XML tag
-        else if (c == '>') 
-        {  
-            insideTag = false;
-
-            if (Leftovers.empty()) 
-            {
-                continue;
-            }
-
-            // check if the first character is a forward slash
-            if (Leftovers[0] == '/') 
-            {  // end tag 
-                entity.DType = SXMLEntity::EType::EndElement;
-                // remove '/' from the tag 
-                entity.DNameData = Leftovers.substr(1); 
-            } 
-            else if (Leftovers.back() == '/') 
-            {  // if the last character is a forward slash
-                entity.DType = SXMLEntity::EType::CompleteElement;
-                // remove "/" from the tag
-                entity.DNameData = Leftovers.substr(0, Leftovers.size() - 1);  
-            } 
-            else 
-            {   
-                entity.DType = SXMLEntity::EType::StartElement;
-
-                // go through each element and find the first space in the tag 
-                size_t position = Leftovers.find_first_of(' ');  
-                // check if the position is at a valid index
-                if (position != std::string::npos) 
-                {
-                    // the tag name is the first 'word' before any spaces
-                    entity.DNameData = Leftovers.substr(0, position);
-
-                    // go through elements after the first space until we find an equals
-                    std::string attributes = Leftovers.substr(position + 1);
-                    size_t pos = 0;
-                    // find the positions of the equal signs
-                    while ((pos = attributes.find('=')) != std::string::npos) 
-                    {
-                        // get the attribute name
-                        std::string attributeName = attributes.substr(0, pos);
-                        attributes = attributes.substr(pos + 1);
-
-                        // find the first quote
-                        size_t quotePos = attributes.find_first_of('\"');
-                        if (quotePos != std::string::npos) 
-                        {
-                            // go immediately after the first quote
-                            attributes = attributes.substr(quotePos + 1);  
-                            quotePos = attributes.find_first_of('\"');
-                            // find the index after the next quote
-                            if (quotePos != std::string::npos) 
-                            {
-                                // get the value between the quotes
-                                std::string attrValue = attributes.substr(0, quotePos);  
-                                entity.DAttributes.emplace_back(attributeName, attrValue);
-                                // go immediately after the second quote
-                                attributes = attributes.substr(quotePos + 1);  
-                            }
-                        }
-                    }
-                } 
-                else
-                {
-                    // the tag name is the entire string if there is no space in it
-                    entity.DNameData = Leftovers;
-                }
-            }
-            return true;
-        } 
-        else 
-        {
-            // total the characters in the leftovers variable
-            Leftovers += c;  
-        }
-    }
-
-    // end of the file
-    DImplementation->EndOfFile = true;
-    return false;  
+bool CXMLReader::ReadEntity(SXMLEntity &entity, bool skipcdata) {
+    return DImplementation->ReadEntity(entity, skipcdata);
 }

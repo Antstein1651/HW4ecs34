@@ -1,45 +1,42 @@
-# Compiler and Flags
+# Compiler
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -g
-LDFLAGS = -lgtest -lgtest_main -pthread
+CXXFLAGS = -Wall -Wextra -std=c++17 -g
 
-# Directories
+# Source files
 SRC_DIR = src
-INCLUDE_DIR = include
-TEST_DIR = testsrc
-BUILD_DIR = build
+OBJ_DIR = obj
 BIN_DIR = bin
 
-# Source Files
-SRC_FILES = $(wildcard $(SRC_DIR)/*.cpp)
-INCLUDE_FILES = $(wildcard $(INCLUDE_DIR)/*.h)
-TEST_FILES = $(wildcard $(TEST_DIR)/*.cpp)
+SRCS = $(wildcard $(SRC_DIR)/*.cpp)
+OBJS = $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(SRCS))
 
-# Object Files
-OBJ_FILES = $(patsubst $(SRC_DIR)/%.cpp, $(BUILD_DIR)/%.o, $(SRC_FILES))
-TEST_OBJ_FILES = $(patsubst $(TEST_DIR)/%.cpp, $(BUILD_DIR)/%.o, $(TEST_FILES))
+# Executable name
+TARGET = $(BIN_DIR)/transportation_planner
 
-# Executables
-TEST_EXEC = $(BIN_DIR)/run_tests
+# Default rule
+all: $(TARGET)
 
-# Create Directories if not exist
-$(shell mkdir -p $(BUILD_DIR) $(BIN_DIR))
+# Create directories if they don't exist
+$(OBJ_DIR):
+	mkdir -p $(OBJ_DIR)
 
-# Compile Object Files
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp $(INCLUDE_FILES)
-	$(CXX) $(CXXFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
+$(BIN_DIR):
+	mkdir -p $(BIN_DIR)
 
-$(BUILD_DIR)/%.o: $(TEST_DIR)/%.cpp $(INCLUDE_FILES)
-	$(CXX) $(CXXFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
+# Compile source files into object files
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Link Executable for Tests
-$(TEST_EXEC): $(OBJ_FILES) $(TEST_OBJ_FILES)
-	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
+# Link all object files into the final executable
+$(TARGET): $(BIN_DIR) $(OBJS)
+	$(CXX) $(CXXFLAGS) $(OBJS) -o $(TARGET)
 
-# Run Tests
-test: $(TEST_EXEC)
-	./$(TEST_EXEC)
-
-# Clean Build Files
+# Clean build files
 clean:
-	rm -rf $(BUILD_DIR) $(BIN_DIR)
+	rm -rf $(OBJ_DIR) $(BIN_DIR)
+
+# Run the program
+run: $(TARGET)
+	$(TARGET)
+
+.PHONY: all clean run

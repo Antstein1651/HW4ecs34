@@ -19,6 +19,9 @@ OBJS = $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(SRCS))
 # Header dependencies
 DEPS = $(wildcard include/*.h)
 
+# Default target
+all: $(TARGET)
+
 # Create necessary directories
 $(OBJ_DIR) $(BIN_DIR):
 	mkdir -p $@
@@ -31,9 +34,13 @@ $(TARGET): $(OBJS) | $(BIN_DIR)
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp $(DEPS) | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+# Run tests (modify this based on your test framework)
+test: $(TARGET)
+	./run_tests.sh  # Change this to the actual test command
+
 # Clean build files
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
 
 # Phony targets
-.PHONY: clean
+.PHONY: all clean test

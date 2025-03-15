@@ -1,42 +1,39 @@
 # Compiler
 CXX = g++
-CXXFLAGS = -Wall -Wextra -std=c++17 -g
+CXXFLAGS = -Wall -Wextra -std=c++17 -g -Iinclude
 
-# Source files
+# Directories
 SRC_DIR = src
 OBJ_DIR = obj
 BIN_DIR = bin
 
-SRCS = $(wildcard $(SRC_DIR)/*.cpp)
-OBJS = $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(SRCS))
-
-# Executable name
+# Target executable
 TARGET = $(BIN_DIR)/transportation_planner
 
-# Default rule
-all: $(TARGET)
+# Source files
+SRCS = $(wildcard $(SRC_DIR)/*.cpp)
 
-# Create directories if they don't exist
-$(OBJ_DIR):
-	mkdir -p $(OBJ_DIR)
+# Object files
+OBJS = $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(SRCS))
 
-$(BIN_DIR):
-	mkdir -p $(BIN_DIR)
+# Header dependencies
+DEPS = $(wildcard include/*.h)
 
-# Compile source files into object files
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
+# Create necessary directories
+$(OBJ_DIR) $(BIN_DIR):
+	mkdir -p $@
+
+# Rule to build the final executable
+$(TARGET): $(OBJS) | $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
+# Rule to compile object files
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp $(DEPS) | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-# Link all object files into the final executable
-$(TARGET): $(BIN_DIR) $(OBJS)
-	$(CXX) $(CXXFLAGS) $(OBJS) -o $(TARGET)
 
 # Clean build files
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
 
-# Run the program
-run: $(TARGET)
-	$(TARGET)
-
-.PHONY: all clean run
+# Phony targets
+.PHONY: clean

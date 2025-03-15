@@ -48,8 +48,12 @@ struct CDijkstraPathRouter::SImplementation {
     }
 
     bool Precompute(std::chrono::steady_clock::time_point deadline) noexcept {
-        // Dijkstra’s algorithm does not require precomputation
-        return true;
+
+        while (std::chrono::steady_clock::now() < deadline) {
+
+        }
+
+        return std::chrono::steady_clock::now() < deadline;
     }
 
     double FindShortestPath(TVertexID src, TVertexID dest, std::vector<TVertexID> &path) noexcept {
@@ -60,7 +64,7 @@ struct CDijkstraPathRouter::SImplementation {
 
         Distance[src] = 0;
         MinHeap.push({0, src});
-        Previous[src] = src; // Mark source with itself
+        Previous[src] = src;
 
         while (!MinHeap.empty()) {
             auto [currDist, currVertex] = MinHeap.top();
@@ -78,16 +82,15 @@ struct CDijkstraPathRouter::SImplementation {
             }
         }
 
-        // Backtrack from destination to source
         path.clear();
         if (Distance.find(dest) == Distance.end()) {
-            return INF; // No path found
+            return INF; 
         }
 
         for (TVertexID at = dest; at != src; at = Previous[at]) {
             path.push_back(at);
             if (Previous[at] == at) {
-                path.clear(); // No valid path
+                path.clear(); 
                 return INF;
             }
         }
@@ -119,15 +122,7 @@ bool CDijkstraPathRouter::AddEdge(TVertexID src, TVertexID dest, double weight, 
 }
 
 bool CDijkstraPathRouter::Precompute(std::chrono::steady_clock::time_point deadline) noexcept {
-
-    while (std::chrono::steady_clock::now() < deadline) {
-       
-        if (std::chrono::steady_clock::now() >= deadline) {
-            return true;  
-        }
-    }
-
-    return true;  // In a real scenario, return true if precompute finishes before the deadline.
+    return DImplementation->Precompute(deadline);
 }
 
 double CDijkstraPathRouter::FindShortestPath(TVertexID src, TVertexID dest, std::vector<TVertexID> &path) noexcept {

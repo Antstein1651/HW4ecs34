@@ -1,12 +1,13 @@
 #include "DijkstraPathRouter.h"
 #include <unordered_map>
-#include <queue>
 #include <vector>
+#include <queue>
 #include <limits>
 #include <algorithm>
+#include <any>
+#include <chrono>
 
 struct CDijkstraPathRouter::SImplementation {
-    static constexpr TVertexID InvalidVertexID = std::numeric_limits<TVertexID>::max();
     struct Edge {
         TVertexID Dest;
         double Weight;
@@ -14,15 +15,29 @@ struct CDijkstraPathRouter::SImplementation {
 
     std::unordered_map<TVertexID, std::vector<Edge>> AdjacencyList;
     std::unordered_map<TVertexID, std::any> VertexTags;
+    TVertexID NextVertexID = 0;
 
-    TVertexID AddVertex(std::any tag) {
-        TVertexID id = VertexTags.size();
+    std::size_t VertexCount() const noexcept {
+        return AdjacencyList.size();
+    }
+
+    TVertexID AddVertex(std::any tag) noexcept {
+        TVertexID id = NextVertexID++;
+        AdjacencyList[id] = {};
         VertexTags[id] = std::move(tag);
         return id;
     }
 
-    bool AddEdge(TVertexID src, TVertexID dest, double weight, bool bidir) {
-        if (VertexTags.find(src) == VertexTags.end() || VertexTags.find(dest) == VertexTags.end()) {
+    std::any GetVertexTag(TVertexID id) const noexcept {
+        auto it = VertexTags.find(id);
+        if (it != VertexTags.end()) {
+            return it->second;
+        }
+        return {};
+    }
+
+    bool AddEdge(TVertexID src, TVertexID dest, double weight, bool bidir = false) noexcept {
+        if (AdjacencyList.find(src) == AdjacencyList.end() || AdjacencyList.find(dest) == AdjacencyList.end()) {
             return false;
         }
         AdjacencyList[src].push_back({dest, weight});
@@ -32,59 +47,63 @@ struct CDijkstraPathRouter::SImplementation {
         return true;
     }
 
-    double FindShortestPath(TVertexID src, TVertexID dest, std::vector<TVertexID> &path) {
-        std::unordered_map<TVertexID, double> Dist;
+    bool Precompute(std::chrono::steady_clock::time_point deadline) noexcept {
+        // Dijkstra’s algorithm does not require precomputation
+        return true;
+    }
+
+    double FindShortestPath(TVertexID src, TVertexID dest, std::vector<TVertexID> &path) noexcept {
+        const double INF = std::numeric_limits<double>::infinity();
+        std::unordered_map<TVertexID, double> Distance;
         std::unordered_map<TVertexID, TVertexID> Previous;
-        
-        for (const auto &v : VertexTags) {
-            Dist[v.first] = std::numeric_limits<double>::infinity();
-            Previous[v.first] = InvalidVertexID;
-        }
-        Dist[src] = 0;
+        std::priority_queue<std::pair<double, TVertexID>, std::vector<std::pair<double, TVertexID>>, std::greater<>> MinHeap;
 
-        using QueueElement = std::pair<double, TVertexID>;
-        std::priority_queue<QueueElement, std::vector<QueueElement>, std::greater<>> PQ;
-        PQ.push({0, src});
+        Distance[src] = 0;
+        MinHeap.push({0, src});
+        Previous[src] = src; // Mark source with itself
 
-        while (!PQ.empty()) {
-            auto [curDist, curVertex] = PQ.top();
-            PQ.pop();
+        while (!MinHeap.empty()) {
+            auto [currDist, currVertex] = MinHeap.top();
+            MinHeap.pop();
 
-            if (curVertex == dest) {
-                break;
-            }
+            if (currVertex == dest) break;
 
-            if (curDist > Dist[curVertex]) {
-                continue;
-            }
-
-            for (const auto &edge : AdjacencyList[curVertex]) {
-                double newDist = curDist + edge.Weight;
-                if (newDist < Dist[edge.Dest]) {
-                    Dist[edge.Dest] = newDist;
-                    Previous[edge.Dest] = curVertex;
-                    PQ.push({newDist, edge.Dest});
+            for (const auto &edge : AdjacencyList[currVertex]) {
+                double newDist = currDist + edge.Weight;
+                if (Distance.find(edge.Dest) == Distance.end() || newDist < Distance[edge.Dest]) {
+                    Distance[edge.Dest] = newDist;
+                    Previous[edge.Dest] = currVertex;
+                    MinHeap.push({newDist, edge.Dest});
                 }
             }
         }
 
-        if (Previous[dest] == InvalidVertexID) {
-            return std::numeric_limits<double>::infinity();
+        // Backtrack from destination to source
+        path.clear();
+        if (Distance.find(dest) == Distance.end()) {
+            return INF; // No path found
         }
 
-        for (TVertexID at = dest; at != InvalidVertexID; at = Previous[at]) {
+        for (TVertexID at = dest; at != src; at = Previous[at]) {
             path.push_back(at);
+            if (Previous[at] == at) {
+                path.clear(); // No valid path
+                return INF;
+            }
         }
+
+        path.push_back(src);
         std::reverse(path.begin(), path.end());
-        return Dist[dest];
+        return Distance[dest];
     }
 };
 
 CDijkstraPathRouter::CDijkstraPathRouter() : DImplementation(std::make_unique<SImplementation>()) {}
+
 CDijkstraPathRouter::~CDijkstraPathRouter() = default;
 
 std::size_t CDijkstraPathRouter::VertexCount() const noexcept {
-    return DImplementation->VertexTags.size();
+    return DImplementation->VertexCount();
 }
 
 CPathRouter::TVertexID CDijkstraPathRouter::AddVertex(std::any tag) noexcept {
@@ -92,11 +111,15 @@ CPathRouter::TVertexID CDijkstraPathRouter::AddVertex(std::any tag) noexcept {
 }
 
 std::any CDijkstraPathRouter::GetVertexTag(TVertexID id) const noexcept {
-    return DImplementation->VertexTags.at(id);
+    return DImplementation->GetVertexTag(id);
 }
 
 bool CDijkstraPathRouter::AddEdge(TVertexID src, TVertexID dest, double weight, bool bidir) noexcept {
     return DImplementation->AddEdge(src, dest, weight, bidir);
+}
+
+bool CDijkstraPathRouter::Precompute(std::chrono::steady_clock::time_point deadline) noexcept {
+    return DImplementation->Precompute(deadline);
 }
 
 double CDijkstraPathRouter::FindShortestPath(TVertexID src, TVertexID dest, std::vector<TVertexID> &path) noexcept {

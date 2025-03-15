@@ -15,8 +15,6 @@ struct CDijkstraPathRouter::SImplementation {
 
     std::unordered_map<TVertexID, std::vector<Edge>> AdjacencyList;
     std::unordered_map<TVertexID, std::any> VertexTags;
-    std::unordered_map<TVertexID, std::unordered_map<TVertexID, double>> PrecomputedPaths;  // Stores precomputed shortest paths
-    std::unordered_map<TVertexID, std::unordered_map<TVertexID, TVertexID>> PrecomputedPrevious;  // Stores previous vertex for backtracking
     TVertexID NextVertexID = 0;
 
     std::size_t VertexCount() const noexcept {
@@ -50,74 +48,11 @@ struct CDijkstraPathRouter::SImplementation {
     }
 
     bool Precompute(std::chrono::steady_clock::time_point deadline) noexcept {
-        const double INF = std::numeric_limits<double>::infinity();
-
-        // Perform Dijkstra's algorithm from each vertex to precompute shortest paths
-        for (const auto& [vertex, _] : AdjacencyList) {
-            if (std::chrono::steady_clock::now() >= deadline) {
-                return false;  // If we have hit the deadline, return false
-            }
-
-            // Shortest path precomputation
-            std::unordered_map<TVertexID, double> Distance;
-            std::unordered_map<TVertexID, TVertexID> Previous;
-            std::priority_queue<std::pair<double, TVertexID>, std::vector<std::pair<double, TVertexID>>, std::greater<>> MinHeap;
-
-            Distance[vertex] = 0;
-            MinHeap.push({0, vertex});
-            Previous[vertex] = vertex;  // Mark source with itself
-
-            while (!MinHeap.empty()) {
-                auto [currDist, currVertex] = MinHeap.top();
-                MinHeap.pop();
-
-                for (const auto& edge : AdjacencyList[currVertex]) {
-                    double newDist = currDist + edge.Weight;
-                    if (Distance.find(edge.Dest) == Distance.end() || newDist < Distance[edge.Dest]) {
-                        Distance[edge.Dest] = newDist;
-                        Previous[edge.Dest] = currVertex;
-                        MinHeap.push({newDist, edge.Dest});
-                    }
-                }
-            }
-
-            // Store the precomputed shortest paths and previous vertices for backtracking
-            for (const auto& [dest, dist] : Distance) {
-                PrecomputedPaths[vertex][dest] = dist;
-                PrecomputedPrevious[vertex][dest] = Previous[dest];
-            }
-        }
-
-        return true;  // Precomputation finished successfully
+        // Dijkstra’s algorithm doesn't require precomputation, but we can use this to prepare any necessary data.
+        return true;
     }
 
-    double FindShortestPath(TVertexID src, TVertexID dest, std::vector<TVertexID> &path) noexcept {
-        const double INF = std::numeric_limits<double>::infinity();
-
-        // Check if the path was precomputed
-        if (PrecomputedPaths.find(src) != PrecomputedPaths.end() && PrecomputedPaths[src].find(dest) != PrecomputedPaths[src].end()) {
-            double distance = PrecomputedPaths[src][dest];
-
-            // Backtrack to construct the path
-            path.clear();
-            for (TVertexID at = dest; at != src; at = PrecomputedPrevious[src][at]) {
-                path.push_back(at);
-                if (PrecomputedPrevious[src][at] == at) {
-                    path.clear();  // No valid path
-                    return INF;
-                }
-            }
-
-            path.push_back(src);
-            std::reverse(path.begin(), path.end());
-            return distance;
-        }
-
-        // If no precomputed path exists, run Dijkstra's algorithm normally
-        return FindShortestPathWithDijkstra(src, dest, path);
-    }
-
-    double FindShortestPathWithDijkstra(TVertexID src, TVertexID dest, std::vector<TVertexID>& path) noexcept {
+    double FindShortestPath(TVertexID src, TVertexID dest, std::vector<TVertexID>& path) noexcept {
         const double INF = std::numeric_limits<double>::infinity();
         std::unordered_map<TVertexID, double> Distance;
         std::unordered_map<TVertexID, TVertexID> Previous;
@@ -125,7 +60,7 @@ struct CDijkstraPathRouter::SImplementation {
 
         Distance[src] = 0;
         MinHeap.push({0, src});
-        Previous[src] = src;  // Mark source with itself
+        Previous[src] = src; // Mark source with itself
 
         while (!MinHeap.empty()) {
             auto [currDist, currVertex] = MinHeap.top();
@@ -146,13 +81,13 @@ struct CDijkstraPathRouter::SImplementation {
         // Backtrack from destination to source
         path.clear();
         if (Distance.find(dest) == Distance.end()) {
-            return INF;  // No path found
+            return INF; // No path found
         }
 
         for (TVertexID at = dest; at != src; at = Previous[at]) {
             path.push_back(at);
             if (Previous[at] == at) {
-                path.clear();  // No valid path
+                path.clear(); // No valid path
                 return INF;
             }
         }
@@ -187,6 +122,6 @@ bool CDijkstraPathRouter::Precompute(std::chrono::steady_clock::time_point deadl
     return DImplementation->Precompute(deadline);
 }
 
-double CDijkstraPathRouter::FindShortestPath(TVertexID src, TVertexID dest, std::vector<TVertexID> &path) noexcept {
+double CDijkstraPathRouter::FindShortestPath(TVertexID src, TVertexID dest, std::vector<TVertexID>& path) noexcept {
     return DImplementation->FindShortestPath(src, dest, path);
 }
